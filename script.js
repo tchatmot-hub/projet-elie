@@ -98,24 +98,8 @@
   }
 
   function initFileUpload() {
-    var uploadBtn = document.getElementById('upload-trigger-button');
-    var fileInput = document.getElementById('file-upload-input');
-    if (!uploadBtn || !fileInput) return;
-
-    uploadBtn.addEventListener('click', function () {
-      fileInput.click();
-    });
-
-    fileInput.addEventListener('change', function () {
-      if (!fileInput.files || fileInput.files.length === 0) return;
-      var file = fileInput.files[0];
-      if (!utils.isAllowedFileType(file.name)) {
-        showToast('Type de fichier non autorisé. Formats acceptés : PDF, DOC, DOCX, XLS, XLSX.', 'error');
-        fileInput.value = '';
-        return;
-      }
-      showToast('Fichier "' + utils.sanitizeInput(file.name) + '" sélectionné (' + utils.formatFileSize(file.size) + ').', 'success');
-    });
+    // Fonction désactivée - seul le délégué peut publier des documents
+    return;
   }
 
   function showToast(message, type) {
