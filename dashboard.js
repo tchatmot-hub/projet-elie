@@ -3,10 +3,18 @@
 
   var utils = typeof require === 'function' ? require('./src/utils') : window.PortailUtils;
 
+  if (!utils) {
+    console.error('PortailUtils is not loaded. Make sure src/utils.js is included before dashboard.js.');
+    return;
+  }
+
   function initSidebar() {
     var toggle = document.getElementById('menu-toggle');
     var sidebar = document.getElementById('sidebar');
-    if (!toggle || !sidebar) return;
+    if (!toggle || !sidebar) {
+      console.warn('Sidebar: #menu-toggle or #sidebar not found.');
+      return;
+    }
 
     toggle.addEventListener('click', function () {
       sidebar.classList.toggle('open');
@@ -15,10 +23,16 @@
 
   function initSearch() {
     var input = document.getElementById('search-input');
-    if (!input) return;
+    if (!input) {
+      console.warn('Search: #search-input not found.');
+      return;
+    }
 
     var tbody = document.querySelector('.table-wrap tbody');
-    if (!tbody) return;
+    if (!tbody) {
+      console.warn('Search: .table-wrap tbody not found.');
+      return;
+    }
 
     var allRows = Array.from(tbody.querySelectorAll('tr'));
 
@@ -42,27 +56,38 @@
     var fileInput = document.getElementById('file-input');
     var preview = document.getElementById('file-preview');
     var progressBar = document.getElementById('upload-progress-bar');
-    if (!dropzone || !fileInput) return;
+    if (!dropzone || !fileInput) {
+      console.warn('Dropzone: #dropzone or #file-input not found.');
+      return;
+    }
 
     dropzone.addEventListener('click', function () {
       fileInput.click();
     });
 
-    dropzone.addEventListener('dragover', function (e) {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
+    ['dragenter', 'dragover'].forEach(function (evt) {
+      dropzone.addEventListener(evt, function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover');
+      });
     });
 
-    dropzone.addEventListener('dragleave', function () {
+    dropzone.addEventListener('dragleave', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
       dropzone.classList.remove('dragover');
     });
 
     dropzone.addEventListener('drop', function (e) {
       e.preventDefault();
+      e.stopPropagation();
       dropzone.classList.remove('dragover');
-      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        handleFile(e.dataTransfer.files[0]);
+      if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) {
+        showToast('Aucun fichier d\u00e9tect\u00e9 dans le glisser-d\u00e9poser.', 'error');
+        return;
       }
+      handleFile(e.dataTransfer.files[0]);
     });
 
     fileInput.addEventListener('change', function () {
@@ -73,7 +98,11 @@
 
     function handleFile(file) {
       if (!utils.isAllowedFileType(file.name)) {
-        showToast('Type de fichier non autorisé.', 'error');
+        showToast('Type de fichier non autoris\u00e9. Formats accept\u00e9s : ' + utils.ALLOWED_EXTENSIONS.join(', '), 'error');
+        return;
+      }
+      if (file.size > utils.MAX_FILE_SIZE) {
+        showToast('Le fichier d\u00e9passe la taille maximale autoris\u00e9e (' + utils.formatFileSize(utils.MAX_FILE_SIZE) + ').', 'error');
         return;
       }
       if (preview) {
@@ -101,7 +130,10 @@
   function initFilterChips() {
     var chips = document.querySelectorAll('.filter-group .chip');
     var tbody = document.querySelector('.table-wrap tbody');
-    if (!chips.length || !tbody) return;
+    if (!chips.length || !tbody) {
+      console.warn('Filter chips: .filter-group .chip or .table-wrap tbody not found.');
+      return;
+    }
 
     var allRows = Array.from(tbody.querySelectorAll('tr'));
 
@@ -128,11 +160,17 @@
 
   function initPublishButton() {
     var publishBtn = document.getElementById('publish-button');
-    if (!publishBtn) return;
+    if (!publishBtn) {
+      console.warn('Publish: #publish-button not found.');
+      return;
+    }
 
     publishBtn.addEventListener('click', function () {
       var form = document.querySelector('.document-form');
-      if (!form) return;
+      if (!form) {
+        showToast('Erreur interne : formulaire introuvable.', 'error');
+        return;
+      }
 
       var titleInput = form.querySelector('input[type="text"]');
       var profInput = form.querySelectorAll('input[type="text"]')[1];
@@ -158,16 +196,25 @@
 
   function initLogout() {
     var logoutBtn = document.getElementById('logout');
-    if (!logoutBtn) return;
+    var sideLogout = document.querySelector('a.side-link.danger[href="#logout"]');
+    if (!logoutBtn && !sideLogout) {
+      console.warn('Logout: no logout button found.');
+      return;
+    }
 
-    logoutBtn.addEventListener('click', function (e) {
+    function doLogout(e) {
       e.preventDefault();
-      showToast('Déconnexion...', 'info');
+      showToast('D\u00e9connexion...', 'info');
       setTimeout(function () {
         window.location.href = 'index.html';
       }, 800);
-    });
+    }
+
+    if (logoutBtn) logoutBtn.addEventListener('click', doLogout);
+    if (sideLogout) sideLogout.addEventListener('click', doLogout);
   }
+
+  var _toastTimer = null;
 
   function showToast(message, type) {
     var existing = document.querySelector('.toast');
@@ -180,18 +227,28 @@
     }
     toast.textContent = message;
     toast.className = 'toast ' + (type || 'info') + ' show';
-    setTimeout(function () {
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function () {
       toast.classList.remove('show');
     }, 3500);
   }
 
   function init() {
-    initSidebar();
-    initSearch();
-    initDropzone();
-    initFilterChips();
-    initPublishButton();
-    initLogout();
+    var modules = [
+      ['Sidebar', initSidebar],
+      ['Search', initSearch],
+      ['Dropzone', initDropzone],
+      ['FilterChips', initFilterChips],
+      ['PublishButton', initPublishButton],
+      ['Logout', initLogout],
+    ];
+    modules.forEach(function (mod) {
+      try {
+        mod[1]();
+      } catch (err) {
+        console.error('Failed to initialize ' + mod[0] + ':', err);
+      }
+    });
   }
 
   if (typeof document !== 'undefined') {
