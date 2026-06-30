@@ -1,2 +1,26 @@
+# dependencies
 node_modules/
-coverage/
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# testing
+/coverage
+
+# env
+.env
+.env.local
+.env*.local
+
+# uploads (local dev storage)
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# misc
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
