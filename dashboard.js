@@ -3,6 +3,39 @@
 
   var utils = typeof require === 'function' ? require('./src/utils') : window.PortailUtils;
 
+  var SESSION_KEY = 'delegue_session';
+
+  function getSession() {
+    try {
+      var raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return null;
+      var session = JSON.parse(raw);
+      if (typeof session.expires !== 'number' || Date.now() > session.expires) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+      return session;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function clearSession() {
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function checkAuth() {
+    if (typeof window !== 'undefined' && !getSession()) {
+      window.location.replace('espace-delegue.html');
+      return false;
+    }
+    return true;
+  }
+
   function initSidebar() {
     var toggle = document.getElementById('menu-toggle');
     var sidebar = document.getElementById('sidebar');
@@ -73,7 +106,7 @@
 
     function handleFile(file) {
       if (!utils.isAllowedFileType(file.name)) {
-        showToast('Type de fichier non autorisé.', 'error');
+        showToast('Type de fichier non autorise.', 'error');
         return;
       }
       if (preview) {
@@ -92,7 +125,7 @@
         progressBar.style.width = width + '%';
         if (width >= 100) {
           clearInterval(interval);
-          showToast('Fichier prêt à publier.', 'success');
+          showToast('Fichier pret a publier.', 'success');
         }
       }, 120);
     }
@@ -152,40 +185,42 @@
         return;
       }
 
-      showToast('Document "' + utils.sanitizeInput(data.title) + '" publié avec succès !', 'success');
+      showToast('Document "' + utils.sanitizeInput(data.title) + '" publie avec succes !', 'success');
     });
   }
 
   function initLogout() {
     var logoutBtn = document.getElementById('logout');
-    if (!logoutBtn) return;
+    var logoutLink = document.querySelector('a.side-link.danger[href="#logout"]');
 
-    logoutBtn.addEventListener('click', function (e) {
-      e.preventDefault();
-      showToast('Déconnexion...', 'info');
-      setTimeout(function () {
-        window.location.href = 'index.html';
-      }, 800);
-    });
+    function handleLogout(e) {
+      if (e) e.preventDefault();
+      clearSession();
+      window.location.replace('espace-delegue.html');
+    }
+
+    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+    if (logoutLink) logoutLink.addEventListener('click', handleLogout);
   }
 
   function showToast(message, type) {
-    var existing = document.querySelector('.toast');
+    var existing = document.querySelector('.notification');
     var toast = existing || document.createElement('div');
     if (!existing) {
-      toast.className = 'toast';
+      toast.className = 'notification';
       toast.setAttribute('aria-live', 'polite');
       toast.setAttribute('aria-atomic', 'true');
       document.body.appendChild(toast);
     }
     toast.textContent = message;
-    toast.className = 'toast ' + (type || 'info') + ' show';
+    toast.className = 'notification ' + (type || 'info') + ' visible';
     setTimeout(function () {
-      toast.classList.remove('show');
+      toast.classList.remove('visible');
     }, 3500);
   }
 
   function init() {
+    if (!checkAuth()) return;
     initSidebar();
     initSearch();
     initDropzone();
@@ -204,6 +239,9 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+      getSession: getSession,
+      clearSession: clearSession,
+      checkAuth: checkAuth,
       initSidebar: initSidebar,
       initSearch: initSearch,
       initDropzone: initDropzone,

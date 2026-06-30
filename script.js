@@ -88,7 +88,7 @@
           showToast(result.errors[0], 'error');
           return;
         }
-        showToast('Connexion simulée avec succès !', 'success');
+        showToast('Connexion simulee avec succes !', 'success');
         closeModal();
         setTimeout(function () {
           window.location.href = 'espace-delegue.html';
@@ -110,11 +110,11 @@
       if (!fileInput.files || fileInput.files.length === 0) return;
       var file = fileInput.files[0];
       if (!utils.isAllowedFileType(file.name)) {
-        showToast('Type de fichier non autorisé. Formats acceptés : PDF, DOC, DOCX, XLS, XLSX.', 'error');
+        showToast('Type de fichier non autorise. Formats acceptes : PDF, DOC, DOCX, XLS, XLSX.', 'error');
         fileInput.value = '';
         return;
       }
-      showToast('Fichier "' + utils.sanitizeInput(file.name) + '" sélectionné (' + utils.formatFileSize(file.size) + ').', 'success');
+      showToast('Fichier "' + utils.sanitizeInput(file.name) + '" selectionne (' + utils.formatFileSize(file.size) + ').', 'success');
     });
   }
 

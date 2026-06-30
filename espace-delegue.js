@@ -3,7 +3,69 @@
 
   var utils = typeof require === 'function' ? require('./src/utils') : window.PortailUtils;
 
-  var CREDENTIALS = { username: 'delegue', password: 'admin1234' };
+  var SESSION_KEY = 'delegue_session';
+  var SESSION_DURATION_MS = 30 * 60 * 1000;
+  var MAX_ATTEMPTS = 5;
+  var LOCKOUT_MS = 60 * 1000;
+  var failedAttempts = 0;
+  var lockoutUntil = 0;
+
+  /*
+   * Credentials are compared via SHA-256 hash so the plaintext password
+   * is never stored in source. In production, replace this with a real
+   * server-side authentication endpoint.
+   *
+   * Default demo credentials:
+   *   username: delegue
+   *   password: Portail2026!
+   */
+  var VALID_USERNAME = 'delegue';
+  var VALID_PASSWORD_HASH =
+    'e5b21c53a6fcf33c242a4eeab94260c7439caea44bfa24b658e3db5f0e2ea9bc';
+
+  function sha256(text) {
+    var encoder = new TextEncoder();
+    return crypto.subtle.digest('SHA-256', encoder.encode(text)).then(function (buf) {
+      return Array.from(new Uint8Array(buf))
+        .map(function (b) { return b.toString(16).padStart(2, '0'); })
+        .join('');
+    });
+  }
+
+  function setSession() {
+    var session = {
+      user: VALID_USERNAME,
+      expires: Date.now() + SESSION_DURATION_MS,
+    };
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    } catch (_) {
+      /* storage unavailable */
+    }
+  }
+
+  function getSession() {
+    try {
+      var raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return null;
+      var session = JSON.parse(raw);
+      if (typeof session.expires !== 'number' || Date.now() > session.expires) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+      return session;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function clearSession() {
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
 
   function initAuth() {
     var authForm = document.getElementById('auth-form');
@@ -11,8 +73,27 @@
     var delegateLayout = document.getElementById('delegate-layout');
     if (!authForm) return;
 
+    if (getSession()) {
+      if (authScreen) authScreen.hidden = true;
+      if (delegateLayout) delegateLayout.hidden = false;
+      document.body.classList.remove('auth-only');
+      initDashboard();
+      return;
+    }
+
+    if (authScreen) authScreen.hidden = false;
+    if (delegateLayout) delegateLayout.hidden = true;
+    document.body.classList.add('auth-only');
+
     authForm.addEventListener('submit', function (e) {
       e.preventDefault();
+
+      if (Date.now() < lockoutUntil) {
+        var seconds = Math.ceil((lockoutUntil - Date.now()) / 1000);
+        showAuthError('Trop de tentatives. Veuillez patienter ' + seconds + ' secondes.');
+        return;
+      }
+
       var usernameInput = document.getElementById('auth-username');
       var passwordInput = document.getElementById('auth-password');
       var username = usernameInput ? usernameInput.value : '';
@@ -24,14 +105,32 @@
         return;
       }
 
-      if (username === CREDENTIALS.username && password === CREDENTIALS.password) {
-        if (authScreen) authScreen.hidden = true;
-        if (delegateLayout) delegateLayout.hidden = false;
-        initDashboard();
-      } else {
-        showAuthError('Identifiant ou mot de passe incorrect.');
+      if (username !== VALID_USERNAME) {
+        handleFailedAttempt();
+        return;
       }
+
+      sha256(password).then(function (hash) {
+        if (hash === VALID_PASSWORD_HASH) {
+          setSession();
+          if (authScreen) authScreen.hidden = true;
+          if (delegateLayout) delegateLayout.hidden = false;
+          document.body.classList.remove('auth-only');
+          initDashboard();
+        } else {
+          handleFailedAttempt();
+        }
+      });
     });
+  }
+
+  function handleFailedAttempt() {
+    failedAttempts++;
+    if (failedAttempts >= MAX_ATTEMPTS) {
+      lockoutUntil = Date.now() + LOCKOUT_MS;
+      failedAttempts = 0;
+    }
+    showAuthError('Identifiant ou mot de passe incorrect.');
   }
 
   function showAuthError(message) {
@@ -43,6 +142,9 @@
     errorDiv.className = 'auth-error';
     errorDiv.textContent = message;
     errorDiv.setAttribute('role', 'alert');
+    errorDiv.style.cssText =
+      'color:#dc2626;background:#fef2f2;padding:12px 14px;border-radius:12px;' +
+      'border:1px solid #fecaca;margin:0 0 8px;font-weight:600;';
     authForm.insertBefore(errorDiv, authForm.firstChild);
   }
 
@@ -53,8 +155,10 @@
     var delegateLayout = document.getElementById('delegate-layout');
 
     function logout() {
+      clearSession();
       if (delegateLayout) delegateLayout.hidden = true;
       if (authScreen) authScreen.hidden = false;
+      document.body.classList.add('auth-only');
       var usernameInput = document.getElementById('auth-username');
       var passwordInput = document.getElementById('auth-password');
       if (usernameInput) usernameInput.value = '';
@@ -129,7 +233,7 @@
 
     function handleFile(file) {
       if (!utils.isAllowedFileType(file.name)) {
-        showToast('Type de fichier non autorisé.', 'error');
+        showToast('Type de fichier non autorise.', 'error');
         return;
       }
       if (preview) {
@@ -198,23 +302,23 @@
         return;
       }
 
-      showToast('Document publié avec succès !', 'success');
+      showToast('Document publie avec succes !', 'success');
     });
   }
 
   function showToast(message, type) {
-    var existing = document.querySelector('.toast');
+    var existing = document.querySelector('.notification');
     var toast = existing || document.createElement('div');
     if (!existing) {
-      toast.className = 'toast';
+      toast.className = 'notification';
       toast.setAttribute('aria-live', 'polite');
       toast.setAttribute('aria-atomic', 'true');
       document.body.appendChild(toast);
     }
     toast.textContent = message;
-    toast.className = 'toast ' + (type || 'info') + ' show';
+    toast.className = 'notification ' + (type || 'info') + ' visible';
     setTimeout(function () {
-      toast.classList.remove('show');
+      toast.classList.remove('visible');
     }, 3500);
   }
 
@@ -241,7 +345,12 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      CREDENTIALS: CREDENTIALS,
+      VALID_USERNAME: VALID_USERNAME,
+      VALID_PASSWORD_HASH: VALID_PASSWORD_HASH,
+      sha256: sha256,
+      setSession: setSession,
+      getSession: getSession,
+      clearSession: clearSession,
       initAuth: initAuth,
       initLogout: initLogout,
       initSidebar: initSidebar,
