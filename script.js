@@ -1,147 +1,166 @@
 (function () {
-  "use strict";
+  'use strict';
 
-  /* ---- Mobile sidebar toggle ---- */
-  var menuButton = document.querySelector(".mobile-menu-button");
-  var sidebar = document.querySelector(".sidebar");
-  if (menuButton && sidebar) {
-    menuButton.addEventListener("click", function () {
-      var isOpen = sidebar.classList.toggle("open");
-      this.setAttribute("aria-expanded", String(isOpen));
+  var utils = typeof require === 'function' ? require('./src/utils') : window.PortailUtils;
+
+  function initMobileMenu() {
+    var menuButton = document.querySelector('.mobile-menu-button');
+    var sidebar = document.querySelector('.sidebar');
+    if (!menuButton || !sidebar) return;
+
+    menuButton.addEventListener('click', function () {
+      var expanded = menuButton.getAttribute('aria-expanded') === 'true';
+      menuButton.setAttribute('aria-expanded', String(!expanded));
+      sidebar.classList.toggle('open');
     });
   }
 
-  /* ---- Search / filter documents ---- */
-  var searchInput = document.getElementById("document-search");
-  if (searchInput) {
-    searchInput.addEventListener("input", function () {
-      var query = this.value.toLowerCase().trim();
-      var rows = document.querySelectorAll("[data-document]");
-      rows.forEach(function (row) {
-        if (!query) {
-          row.hidden = false;
-          return;
-        }
-        var title = (row.getAttribute("data-title") || "").toLowerCase();
-        var subject = (row.getAttribute("data-subject") || "").toLowerCase();
-        var professor = (row.getAttribute("data-professor") || "").toLowerCase();
-        row.hidden = !(
-          title.includes(query) ||
-          subject.includes(query) ||
-          professor.includes(query)
-        );
+  function initSearch() {
+    var searchInput = document.getElementById('document-search');
+    if (!searchInput) return;
+
+    var tbody = document.querySelector('.table-card tbody');
+    if (!tbody) return;
+
+    var allRows = Array.from(tbody.querySelectorAll('tr[data-document]'));
+    var documents = utils.parseDocumentRows(tbody);
+
+    var debouncedFilter = utils.debounce(function () {
+      var query = searchInput.value;
+      var filtered = utils.filterDocuments(documents, query);
+      var filteredTitles = filtered.map(function (d) { return d.title; });
+      allRows.forEach(function (row) {
+        var title = row.getAttribute('data-title') || '';
+        row.style.display = filteredTitles.includes(title) ? '' : 'none';
       });
+    }, 250);
 
-      var subjectCards = document.querySelectorAll(".subject-card[data-subject]");
-      subjectCards.forEach(function (card) {
-        var name = (card.getAttribute("data-subject") || "").toLowerCase();
-        if (!query) {
-          card.classList.remove("search-match", "search-hidden");
-          return;
-        }
-        if (name.includes(query)) {
-          card.classList.add("search-match");
-          card.classList.remove("search-hidden");
-        } else {
-          card.classList.remove("search-match");
-          card.classList.add("search-hidden");
-        }
+    searchInput.addEventListener('input', debouncedFilter);
+  }
+
+  function initModal() {
+    var modal = document.getElementById('delegate-modal');
+    if (!modal) return;
+
+    var closeBtn = modal.querySelector('.modal-close-button');
+    var submitBtn = document.getElementById('delegate-submit-button');
+    var helpBtn = document.getElementById('help-contact-button');
+    var delegateLinks = document.querySelectorAll('a[href="espace-delegue.html"]');
+
+    function openModal() {
+      modal.setAttribute('aria-hidden', 'false');
+      modal.classList.add('visible');
+    }
+
+    function closeModal() {
+      modal.setAttribute('aria-hidden', 'true');
+      modal.classList.remove('visible');
+    }
+
+    if (helpBtn) helpBtn.addEventListener('click', openModal);
+
+    delegateLinks.forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        openModal();
       });
     });
-  }
 
-  /* ---- Delegate login modal ---- */
-  var modal = document.getElementById("delegate-modal");
-  var submitButton = document.getElementById("delegate-submit-button");
-  var closeButton = document.querySelector(".modal-close-button");
-  var uploadTrigger = document.getElementById("upload-trigger-button");
-  var fileUploadInput = document.getElementById("file-upload-input");
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
 
-  function openModal() {
-    if (!modal) return;
-    modal.classList.add("open");
-    modal.setAttribute("aria-hidden", "false");
-    document.body.classList.add("modal-open");
-  }
-
-  function closeModal() {
-    if (!modal) return;
-    modal.classList.remove("open");
-    modal.setAttribute("aria-hidden", "true");
-    document.body.classList.remove("modal-open");
-  }
-
-  var delegateLinks = document.querySelectorAll('a[href="espace-delegue.html"]');
-  delegateLinks.forEach(function (link) {
-    link.addEventListener("click", function (e) {
-      e.preventDefault();
-      window.location.href = "espace-delegue.html";
-    });
-  });
-
-  if (submitButton) {
-    submitButton.addEventListener("click", function () {
-      window.location.href = "espace-delegue.html";
-    });
-  }
-
-  if (closeButton) closeButton.addEventListener("click", closeModal);
-
-  if (modal) {
-    modal.addEventListener("click", function (e) {
+    modal.addEventListener('click', function (e) {
       if (e.target === modal) closeModal();
     });
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") closeModal();
+
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function () {
+        var emailInput = modal.querySelector('input[type="email"]');
+        var passwordInput = modal.querySelector('input[type="password"]');
+        var email = emailInput ? emailInput.value : '';
+        var password = passwordInput ? passwordInput.value : '';
+
+        if (!utils.validateEmail(email)) {
+          showToast('Veuillez saisir une adresse e-mail valide.', 'error');
+          return;
+        }
+        var result = utils.validateLoginForm(email, password);
+        if (!result.valid) {
+          showToast(result.errors[0], 'error');
+          return;
+        }
+        showToast('Connexion simulee avec succes !', 'success');
+        closeModal();
+        setTimeout(function () {
+          window.location.href = 'espace-delegue.html';
+        }, 1000);
+      });
+    }
+  }
+
+  function initFileUpload() {
+    var uploadBtn = document.getElementById('upload-trigger-button');
+    var fileInput = document.getElementById('file-upload-input');
+    if (!uploadBtn || !fileInput) return;
+
+    uploadBtn.addEventListener('click', function () {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', function () {
+      if (!fileInput.files || fileInput.files.length === 0) return;
+      var file = fileInput.files[0];
+      if (!utils.isAllowedFileType(file.name)) {
+        showToast('Type de fichier non autorise. Formats acceptes : PDF, DOC, DOCX, XLS, XLSX.', 'error');
+        fileInput.value = '';
+        return;
+      }
+      showToast('Fichier "' + utils.sanitizeInput(file.name) + '" selectionne (' + utils.formatFileSize(file.size) + ').', 'success');
     });
   }
 
-  /* ---- File upload (main page) ---- */
-  if (uploadTrigger && fileUploadInput) {
-    uploadTrigger.addEventListener("click", function () {
-      fileUploadInput.click();
-    });
-
-    var ALLOWED_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx"];
-    var MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-    fileUploadInput.addEventListener("change", function () {
-      var file = this.files[0];
-      if (!file) return;
-      var ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-      if (ALLOWED_EXTENSIONS.indexOf(ext) === -1) {
-        showToast("Type de fichier non autorise.", "info");
-        this.value = "";
-        return;
-      }
-      if (file.size > MAX_FILE_SIZE) {
-        showToast("Fichier trop volumineux (max 10 Mo).", "info");
-        this.value = "";
-        return;
-      }
-      var safeName = file.name.replace(/[<>"'&]/g, "");
-      showToast("Fichier selectionne : " + safeName, "success");
-    });
-  }
-
-  /* ---- Toast notifications ---- */
-  var toast = document.getElementById("toast");
-
-  function showToast(message, tone) {
+  function showToast(message, type) {
+    var toast = document.getElementById('toast');
     if (!toast) return;
     toast.textContent = message;
-    toast.setAttribute("data-tone", tone || "info");
-    toast.classList.add("visible");
+    toast.className = 'toast ' + (type || 'info') + ' show';
     setTimeout(function () {
-      toast.classList.remove("visible");
-    }, 3000);
+      toast.classList.remove('show');
+    }, 3500);
   }
 
-  /* ---- Help button ---- */
-  var helpButton = document.getElementById("help-contact-button");
-  if (helpButton) {
-    helpButton.addEventListener("click", function () {
-      showToast("Veuillez contacter le delegue par e-mail.", "info");
+  function initNotifications() {
+    var notifBtn = document.querySelector('.notification-button');
+    if (!notifBtn) return;
+    notifBtn.addEventListener('click', function () {
+      showToast('Aucune nouvelle notification.', 'info');
     });
+  }
+
+  function init() {
+    initMobileMenu();
+    initSearch();
+    initModal();
+    initFileUpload();
+    initNotifications();
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      initMobileMenu: initMobileMenu,
+      initSearch: initSearch,
+      initModal: initModal,
+      initFileUpload: initFileUpload,
+      initNotifications: initNotifications,
+      showToast: showToast,
+      init: init,
+    };
   }
 })();

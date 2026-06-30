@@ -1,34 +1,35 @@
 (function () {
-  "use strict";
+  'use strict';
 
-  var SESSION_KEY = "delegue_session";
+  var utils = typeof require === 'function' ? require('./src/utils') : window.PortailUtils;
+
+  var SESSION_KEY = 'delegue_session';
   var SESSION_DURATION_MS = 30 * 60 * 1000;
-
-  /* SHA-256 hash (Web Crypto API) */
-  function sha256(text) {
-    var encoder = new TextEncoder();
-    return crypto.subtle.digest("SHA-256", encoder.encode(text)).then(function (buf) {
-      return Array.from(new Uint8Array(buf))
-        .map(function (b) { return b.toString(16).padStart(2, "0"); })
-        .join("");
-    });
-  }
+  var MAX_ATTEMPTS = 5;
+  var LOCKOUT_MS = 60 * 1000;
+  var failedAttempts = 0;
+  var lockoutUntil = 0;
 
   /*
-   * For the demo only: credentials are compared via SHA-256 hash so the
-   * plaintext password is never stored in source. In production, replace
-   * this with a real server-side authentication endpoint.
+   * Credentials are compared via SHA-256 hash so the plaintext password
+   * is never stored in source. In production, replace this with a real
+   * server-side authentication endpoint.
    *
    * Default demo credentials:
    *   username: delegue
    *   password: Portail2026!
    */
-  var VALID_USERNAME = "delegue";
+  var VALID_USERNAME = 'delegue';
   var VALID_PASSWORD_HASH =
-    "e5b21c53a6fcf33c242a4eeab94260c7439caea44bfa24b658e3db5f0e2ea9bc";
+    'e5b21c53a6fcf33c242a4eeab94260c7439caea44bfa24b658e3db5f0e2ea9bc';
 
-  function hashPassword(password) {
-    return sha256(password);
+  function sha256(text) {
+    var encoder = new TextEncoder();
+    return crypto.subtle.digest('SHA-256', encoder.encode(text)).then(function (buf) {
+      return Array.from(new Uint8Array(buf))
+        .map(function (b) { return b.toString(16).padStart(2, '0'); })
+        .join('');
+    });
   }
 
   function setSession() {
@@ -48,7 +49,7 @@
       var raw = sessionStorage.getItem(SESSION_KEY);
       if (!raw) return null;
       var session = JSON.parse(raw);
-      if (typeof session.expires !== "number" || Date.now() > session.expires) {
+      if (typeof session.expires !== 'number' || Date.now() > session.expires) {
         sessionStorage.removeItem(SESSION_KEY);
         return null;
       }
@@ -66,203 +67,301 @@
     }
   }
 
-  /* ---- DOM refs ---- */
-  var authScreen = document.getElementById("auth-screen");
-  var delegateLayout = document.getElementById("delegate-layout");
-  var authForm = document.getElementById("auth-form");
-  var usernameInput = document.getElementById("auth-username");
-  var passwordInput = document.getElementById("auth-password");
+  function initAuth() {
+    var authForm = document.getElementById('auth-form');
+    var authScreen = document.getElementById('auth-screen');
+    var delegateLayout = document.getElementById('delegate-layout');
+    if (!authForm) return;
 
-  var MAX_ATTEMPTS = 5;
-  var LOCKOUT_MS = 60 * 1000;
-  var failedAttempts = 0;
-  var lockoutUntil = 0;
+    if (getSession()) {
+      if (authScreen) authScreen.hidden = true;
+      if (delegateLayout) delegateLayout.hidden = false;
+      document.body.classList.remove('auth-only');
+      initDashboard();
+      return;
+    }
 
-  function showDashboard() {
-    if (authScreen) authScreen.hidden = true;
-    if (delegateLayout) delegateLayout.hidden = false;
-    document.body.classList.remove("auth-only");
-  }
-
-  function showAuthScreen() {
     if (authScreen) authScreen.hidden = false;
     if (delegateLayout) delegateLayout.hidden = true;
-    document.body.classList.add("auth-only");
-  }
+    document.body.classList.add('auth-only');
 
-  function showError(message) {
-    var existing = authForm.querySelector(".auth-error");
-    if (existing) existing.remove();
-    var el = document.createElement("p");
-    el.className = "auth-error";
-    el.style.cssText =
-      "color:#dc2626;background:#fef2f2;padding:12px 14px;border-radius:12px;" +
-      "border:1px solid #fecaca;margin:0;font-weight:600;";
-    el.textContent = message;
-    authForm.insertBefore(el, authForm.querySelector("button[type='submit']"));
-  }
-
-  /* ---- Init ---- */
-  if (getSession()) {
-    showDashboard();
-  } else {
-    showAuthScreen();
-  }
-
-  /* ---- Login handler ---- */
-  if (authForm) {
-    authForm.addEventListener("submit", function (e) {
+    authForm.addEventListener('submit', function (e) {
       e.preventDefault();
 
       if (Date.now() < lockoutUntil) {
         var seconds = Math.ceil((lockoutUntil - Date.now()) / 1000);
-        showError(
-          "Trop de tentatives. Veuillez patienter " + seconds + " secondes."
-        );
+        showAuthError('Trop de tentatives. Veuillez patienter ' + seconds + ' secondes.');
         return;
       }
 
-      var username = (usernameInput.value || "").trim();
-      var password = passwordInput.value || "";
+      var usernameInput = document.getElementById('auth-username');
+      var passwordInput = document.getElementById('auth-password');
+      var username = usernameInput ? usernameInput.value : '';
+      var password = passwordInput ? passwordInput.value : '';
 
-      if (!username || !password) {
-        showError("Veuillez remplir tous les champs.");
+      var result = utils.validateLoginForm(username, password);
+      if (!result.valid) {
+        showAuthError(result.errors[0]);
         return;
       }
 
       if (username !== VALID_USERNAME) {
-        failedAttempts++;
-        if (failedAttempts >= MAX_ATTEMPTS) {
-          lockoutUntil = Date.now() + LOCKOUT_MS;
-          failedAttempts = 0;
-        }
-        showError("Identifiants incorrects.");
+        handleFailedAttempt();
         return;
       }
 
-      hashPassword(password).then(function (hash) {
+      sha256(password).then(function (hash) {
         if (hash === VALID_PASSWORD_HASH) {
           setSession();
-          showDashboard();
+          if (authScreen) authScreen.hidden = true;
+          if (delegateLayout) delegateLayout.hidden = false;
+          document.body.classList.remove('auth-only');
+          initDashboard();
         } else {
-          failedAttempts++;
-          if (failedAttempts >= MAX_ATTEMPTS) {
-            lockoutUntil = Date.now() + LOCKOUT_MS;
-            failedAttempts = 0;
-          }
-          showError("Identifiants incorrects.");
+          handleFailedAttempt();
         }
       });
     });
   }
 
-  /* ---- Logout ---- */
-  function handleLogout() {
-    clearSession();
-    showAuthScreen();
-    if (usernameInput) usernameInput.value = "";
-    if (passwordInput) passwordInput.value = "";
-    var err = authForm && authForm.querySelector(".auth-error");
-    if (err) err.remove();
+  function handleFailedAttempt() {
+    failedAttempts++;
+    if (failedAttempts >= MAX_ATTEMPTS) {
+      lockoutUntil = Date.now() + LOCKOUT_MS;
+      failedAttempts = 0;
+    }
+    showAuthError('Identifiant ou mot de passe incorrect.');
   }
 
-  var sideLogout = document.getElementById("side-logout");
-  var topLogout = document.getElementById("top-logout");
-  if (sideLogout) sideLogout.addEventListener("click", handleLogout);
-  if (topLogout) topLogout.addEventListener("click", handleLogout);
+  function showAuthError(message) {
+    var existing = document.querySelector('.auth-error');
+    if (existing) existing.remove();
+    var authForm = document.getElementById('auth-form');
+    if (!authForm) return;
+    var errorDiv = document.createElement('div');
+    errorDiv.className = 'auth-error';
+    errorDiv.textContent = message;
+    errorDiv.setAttribute('role', 'alert');
+    errorDiv.style.cssText =
+      'color:#dc2626;background:#fef2f2;padding:12px 14px;border-radius:12px;' +
+      'border:1px solid #fecaca;margin:0 0 8px;font-weight:600;';
+    authForm.insertBefore(errorDiv, authForm.firstChild);
+  }
 
-  /* ---- Sidebar toggle (mobile) ---- */
-  var menuToggle = document.getElementById("menu-toggle");
-  var sidebar = document.getElementById("sidebar");
-  if (menuToggle && sidebar) {
-    menuToggle.addEventListener("click", function () {
-      sidebar.classList.toggle("open");
+  function initLogout() {
+    var sideLogout = document.getElementById('side-logout');
+    var topLogout = document.getElementById('top-logout');
+    var authScreen = document.getElementById('auth-screen');
+    var delegateLayout = document.getElementById('delegate-layout');
+
+    function logout() {
+      clearSession();
+      if (delegateLayout) delegateLayout.hidden = true;
+      if (authScreen) authScreen.hidden = false;
+      document.body.classList.add('auth-only');
+      var usernameInput = document.getElementById('auth-username');
+      var passwordInput = document.getElementById('auth-password');
+      if (usernameInput) usernameInput.value = '';
+      if (passwordInput) passwordInput.value = '';
+      var existing = document.querySelector('.auth-error');
+      if (existing) existing.remove();
+    }
+
+    if (sideLogout) sideLogout.addEventListener('click', logout);
+    if (topLogout) topLogout.addEventListener('click', logout);
+  }
+
+  function initSidebar() {
+    var toggle = document.getElementById('menu-toggle');
+    var sidebar = document.getElementById('sidebar');
+    if (!toggle || !sidebar) return;
+    toggle.addEventListener('click', function () {
+      sidebar.classList.toggle('open');
     });
   }
 
-  /* ---- Search filter ---- */
-  var searchInput = document.getElementById("search-input");
-  if (searchInput) {
-    searchInput.addEventListener("input", function () {
-      var query = this.value.toLowerCase().trim();
-      var rows = document.querySelectorAll("tbody tr");
-      rows.forEach(function (row) {
-        var text = row.textContent.toLowerCase();
-        row.style.display = text.includes(query) ? "" : "none";
+  function initSearch() {
+    var input = document.getElementById('search-input');
+    if (!input) return;
+    var tbody = document.querySelector('.table-wrap tbody');
+    if (!tbody) return;
+    var allRows = Array.from(tbody.querySelectorAll('tr'));
+
+    var debouncedFilter = utils.debounce(function () {
+      var query = utils.normalizeText(input.value);
+      allRows.forEach(function (row) {
+        if (!query) { row.style.display = ''; return; }
+        var text = utils.normalizeText(row.textContent || '');
+        row.style.display = text.includes(query) ? '' : 'none';
+      });
+    }, 250);
+
+    input.addEventListener('input', debouncedFilter);
+  }
+
+  function initDropzone() {
+    var dropzone = document.getElementById('dropzone');
+    var fileInput = document.getElementById('file-input');
+    var preview = document.getElementById('file-preview');
+    var progressBar = document.getElementById('upload-progress-bar');
+    if (!dropzone || !fileInput) return;
+
+    dropzone.addEventListener('click', function () { fileInput.click(); });
+
+    dropzone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', function () {
+      dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', function () {
+      if (fileInput.files && fileInput.files.length > 0) {
+        handleFile(fileInput.files[0]);
+      }
+    });
+
+    function handleFile(file) {
+      if (!utils.isAllowedFileType(file.name)) {
+        showToast('Type de fichier non autorise.', 'error');
+        return;
+      }
+      if (preview) {
+        preview.innerHTML =
+          '<span>' + utils.sanitizeInput(file.name) + ' (' + utils.formatFileSize(file.size) + ')</span>';
+      }
+      simulateProgress();
+    }
+
+    function simulateProgress() {
+      if (!progressBar) return;
+      var width = 0;
+      progressBar.style.width = '0%';
+      var interval = setInterval(function () {
+        width += 10;
+        progressBar.style.width = width + '%';
+        if (width >= 100) clearInterval(interval);
+      }, 120);
+    }
+  }
+
+  function initFilterChips() {
+    var chips = document.querySelectorAll('.filter-group .chip');
+    var tbody = document.querySelector('.table-wrap tbody');
+    if (!chips.length || !tbody) return;
+    var allRows = Array.from(tbody.querySelectorAll('tr'));
+
+    chips.forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        chips.forEach(function (c) { c.classList.remove('active'); });
+        chip.classList.add('active');
+        var filterType = chip.textContent.trim().toLowerCase();
+        allRows.forEach(function (row) {
+          if (filterType === 'tous') { row.style.display = ''; return; }
+          var badge = row.querySelector('.file-badge');
+          if (!badge) { row.style.display = 'none'; return; }
+          var badgeType = badge.textContent.trim().toLowerCase();
+          row.style.display = badgeType === filterType ? '' : 'none';
+        });
       });
     });
   }
 
-  /* ---- File upload preview ---- */
-  var fileInput = document.getElementById("file-input");
-  var filePreview = document.getElementById("file-preview");
-  var ALLOWED_EXTENSIONS = [".pdf", ".docx", ".xlsx"];
-  var MAX_FILE_SIZE = 10 * 1024 * 1024;
+  function initPublishButton() {
+    var publishBtn = document.getElementById('publish-button');
+    if (!publishBtn) return;
 
-  if (fileInput && filePreview) {
-    fileInput.addEventListener("change", function () {
-      var file = this.files[0];
-      if (!file) {
-        filePreview.innerHTML = "<span>Aucun fichier selectionne</span>";
+    publishBtn.addEventListener('click', function () {
+      var form = document.querySelector('.document-form');
+      if (!form) return;
+      var titleInput = form.querySelector('input[type="text"]');
+      var profInput = form.querySelectorAll('input[type="text"]')[1];
+      var subjectSelect = form.querySelector('select');
+      var fileInput = document.getElementById('file-input');
+
+      var data = {
+        title: titleInput ? titleInput.value : '',
+        subject: subjectSelect ? subjectSelect.value : '',
+        professor: profInput ? profInput.value : '',
+        file: fileInput && fileInput.files.length > 0 ? fileInput.files[0] : null,
+      };
+
+      var result = utils.validateDocumentForm(data);
+      if (!result.valid) {
+        showToast(result.errors[0], 'error');
         return;
       }
-      var ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-      if (ALLOWED_EXTENSIONS.indexOf(ext) === -1) {
-        filePreview.innerHTML =
-          "<span style='color:#dc2626'>Type de fichier non autorise.</span>";
-        fileInput.value = "";
-        return;
-      }
-      if (file.size > MAX_FILE_SIZE) {
-        filePreview.innerHTML =
-          "<span style='color:#dc2626'>Fichier trop volumineux (max 10 Mo).</span>";
-        fileInput.value = "";
-        return;
-      }
-      var safeName = file.name.replace(/[<>"'&]/g, "");
-      filePreview.textContent = safeName + " (" + (file.size / 1024).toFixed(1) + " Ko)";
+
+      showToast('Document publie avec succes !', 'success');
     });
   }
 
-  /* ---- Dropzone visual feedback ---- */
-  var dropzone = document.getElementById("dropzone");
-  if (dropzone) {
-    dropzone.addEventListener("dragover", function (e) {
-      e.preventDefault();
-      this.classList.add("dragover");
-    });
-    dropzone.addEventListener("dragleave", function () {
-      this.classList.remove("dragover");
-    });
-    dropzone.addEventListener("drop", function () {
-      this.classList.remove("dragover");
-    });
-  }
-
-  /* ---- Notification helper ---- */
-  function showNotification(message) {
-    var el = document.querySelector(".notification");
-    if (!el) return;
-    el.textContent = message;
-    el.classList.add("visible");
+  function showToast(message, type) {
+    var existing = document.querySelector('.notification');
+    var toast = existing || document.createElement('div');
+    if (!existing) {
+      toast.className = 'notification';
+      toast.setAttribute('aria-live', 'polite');
+      toast.setAttribute('aria-atomic', 'true');
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.className = 'notification ' + (type || 'info') + ' visible';
     setTimeout(function () {
-      el.classList.remove("visible");
-    }, 3000);
+      toast.classList.remove('visible');
+    }, 3500);
   }
 
-  /* ---- Publish button (demo) ---- */
-  var publishButton = document.getElementById("publish-button");
-  if (publishButton) {
-    publishButton.addEventListener("click", function () {
-      showNotification("Document publie avec succes (demo).");
-    });
+  function initDashboard() {
+    initSidebar();
+    initSearch();
+    initDropzone();
+    initFilterChips();
+    initPublishButton();
   }
 
-  /* ---- Notify button ---- */
-  var notifyButton = document.getElementById("notify-button");
-  if (notifyButton) {
-    notifyButton.addEventListener("click", function () {
-      showNotification("Aucune nouvelle notification.");
-    });
+  function init() {
+    initAuth();
+    initLogout();
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      VALID_USERNAME: VALID_USERNAME,
+      VALID_PASSWORD_HASH: VALID_PASSWORD_HASH,
+      sha256: sha256,
+      setSession: setSession,
+      getSession: getSession,
+      clearSession: clearSession,
+      initAuth: initAuth,
+      initLogout: initLogout,
+      initSidebar: initSidebar,
+      initSearch: initSearch,
+      initDropzone: initDropzone,
+      initFilterChips: initFilterChips,
+      initPublishButton: initPublishButton,
+      showAuthError: showAuthError,
+      showToast: showToast,
+      initDashboard: initDashboard,
+      init: init,
+    };
   }
 })();
