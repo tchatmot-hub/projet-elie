@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PORTAIL DES COURS - Connexion Étudiant</title>
+    <meta name="description" content="Connexion pour les étudiants inscrits." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="connexion-etudiant.js"></script>
+</head>
+<body>
+  <div class="auth-screen" id="auth-screen">
+    <div class="auth-card">
+      <p class="eyebrow">Connexion</p>
+      <h1>Espace Étudiant</h1>
+      <p class="auth-text">Connectez-vous pour accéder aux documents de votre classe.</p>
+
+      <form class="auth-form" id="login-form">
+        <label>
+          <span>Email</span>
+          <input id="login-email" type="email" placeholder="votre.email@universite.edu" autocomplete="email" required />
+        </label>
+        <label>
+          <span>Mot de passe</span>
+          <input id="login-password" type="password" placeholder="Votre mot de passe" autocomplete="current-password" required />
+        </label>
+        <button class="primary-button full-width" type="submit">Se connecter</button>
+      </form>
+
+      <div class="auth-note">
+        <strong>Pas encore inscrit ?</strong>
+        <p>Demandez le code d'accès à votre délégué et inscrivez-vous.</p>
+      </div>
+
+      <div class="auth-links">
+        <a href="index.html">← Retour à l'accueil</a>
+        <a href="inscription-etudiant.html">S'inscrire avec un code</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

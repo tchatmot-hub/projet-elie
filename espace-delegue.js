@@ -218,12 +218,77 @@
     }, 3500);
   }
 
+  function initCodesPanel() {
+    var generateBtn = document.getElementById('generate-code-btn');
+    var studentNameInput = document.getElementById('student-name');
+    var codesList = document.getElementById('codes-list');
+    if (!generateBtn || !studentNameInput || !codesList) return;
+
+    // Charger les codes existants
+    function loadCodes() {
+      var stored = localStorage.getItem('studentCodes');
+      var codes = stored ? JSON.parse(stored) : [];
+      codesList.innerHTML = '';
+      codes.forEach(function (codeData) {
+        var codeItem = document.createElement('div');
+        codeItem.className = 'code-item';
+        codeItem.innerHTML =
+          '<strong>' + utils.sanitizeInput(codeData.studentName) + '</strong>' +
+          '<span class="access-code">' + codeData.code + '</span>' +
+          '<button class="copy-btn" data-code="' + codeData.code + '">Copier</button>';
+        codesList.appendChild(codeItem);
+      });
+
+      // Ajouter les événements de copie
+      codesList.querySelectorAll('.copy-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var code = btn.getAttribute('data-code');
+          navigator.clipboard.writeText(code).then(function () {
+            showToast('Code copié !', 'success');
+          }).catch(function () {
+            showToast('Erreur lors de la copie', 'error');
+          });
+        });
+      });
+    }
+
+    generateBtn.addEventListener('click', function () {
+      var studentName = studentNameInput.value.trim();
+      if (!studentName) {
+        showToast('Veuillez entrer le nom de l\'étudiant', 'error');
+        return;
+      }
+
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      var code = '';
+      for (var i = 0; i < 8; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      var stored = localStorage.getItem('studentCodes');
+      var codes = stored ? JSON.parse(stored) : [];
+      codes.push({
+        studentName: studentName,
+        code: code,
+        createdAt: new Date().toISOString()
+      });
+      localStorage.setItem('studentCodes', JSON.stringify(codes));
+
+      studentNameInput.value = '';
+      loadCodes();
+      showToast('Code généré pour ' + utils.sanitizeInput(studentName) + ' : ' + code, 'success');
+    });
+
+    loadCodes();
+  }
+
   function initDashboard() {
     initSidebar();
     initSearch();
     initDropzone();
     initFilterChips();
     initPublishButton();
+    initCodesPanel();
   }
 
   function init() {
