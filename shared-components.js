@@ -2,6 +2,7 @@
  * SHARED-COMPONENTS.JS
  * Reusable UI component generators for the Portail des Cours platform.
  * Eliminates HTML duplication between dashboard.html and espace-delegue.html.
+ * Uses PortailUtils (src/utils.js) for validation, sanitization, and filtering.
  */
 
 const SharedComponents = (() => {
@@ -17,6 +18,10 @@ const SharedComponents = (() => {
   ];
 
   const DOC_TYPES = ["Cours", "TD", "TP", "Examen", "Corrigé"];
+
+  function getUtils() {
+    return typeof require === "function" ? require("./src/utils") : window.PortailUtils;
+  }
 
   /* ─── Sidebar ─── */
   function renderSidebar(container, options = {}) {
@@ -294,7 +299,7 @@ const SharedComponents = (() => {
             ${documents
               .map(
                 (d) => `
-              <tr>
+              <tr data-document data-file-type="${d.badge}" data-title="${d.title}" data-subject="${d.subject}" data-professor="${d.prof}">
                 <td><span class="file-badge ${d.badge}">${d.badgeLabel}</span></td>
                 <td>${d.title}</td>
                 <td>${d.subject}</td>
@@ -411,98 +416,237 @@ const SharedComponents = (() => {
   }
 
   /* ─── Notification Toast Utility ─── */
-  function showNotification(message, tone = "info", duration = 3000) {
-    let el = document.querySelector(".notification");
+  function showNotification(message, tone, duration) {
+    duration = duration || 3000;
+    tone = tone || "info";
+    var el = document.querySelector(".notification");
     if (!el) {
       el = document.createElement("div");
       el.className = "notification";
       document.body.appendChild(el);
     }
     el.textContent = message;
-    if (tone) el.setAttribute("data-tone", tone);
+    el.setAttribute("data-tone", tone);
     el.classList.add("visible");
-    setTimeout(() => el.classList.remove("visible"), duration);
+    setTimeout(function () { el.classList.remove("visible"); }, duration);
   }
 
   /* ─── Mobile Menu Toggle Utility ─── */
-  function initMobileMenu(toggleId = "menu-toggle", sidebarId = "sidebar") {
-    const toggle = document.getElementById(toggleId);
-    const sidebar = document.getElementById(sidebarId);
+  function initMobileMenu(toggleId, sidebarId) {
+    toggleId = toggleId || "menu-toggle";
+    sidebarId = sidebarId || "sidebar";
+    var toggle = document.getElementById(toggleId);
+    var sidebar = document.getElementById(sidebarId);
     if (toggle && sidebar) {
-      toggle.addEventListener("click", () => sidebar.classList.toggle("open"));
+      toggle.addEventListener("click", function () { sidebar.classList.toggle("open"); });
     }
   }
 
-  /* ─── Dropzone Utility ─── */
-  function initDropzone(dropzoneId = "dropzone", fileInputId = "file-input", previewId = "file-preview", progressBarId = "upload-progress-bar") {
-    const dropzone = document.getElementById(dropzoneId);
-    const fileInput = document.getElementById(fileInputId);
-    const preview = document.getElementById(previewId);
-    const progressBar = document.getElementById(progressBarId);
+  /* ─── Dropzone Utility (uses PortailUtils for validation) ─── */
+  function initDropzone(dropzoneId, fileInputId, previewId, progressBarId) {
+    dropzoneId = dropzoneId || "dropzone";
+    fileInputId = fileInputId || "file-input";
+    previewId = previewId || "file-preview";
+    progressBarId = progressBarId || "upload-progress-bar";
+
+    var utils = getUtils();
+    var dropzone = document.getElementById(dropzoneId);
+    var fileInput = document.getElementById(fileInputId);
+    var preview = document.getElementById(previewId);
+    var progressBar = document.getElementById(progressBarId);
 
     if (!dropzone || !fileInput) return;
 
-    dropzone.addEventListener("dragover", (e) => {
+    dropzone.addEventListener("click", function () { fileInput.click(); });
+
+    dropzone.addEventListener("dragover", function (e) {
       e.preventDefault();
       dropzone.classList.add("dragover");
     });
 
-    dropzone.addEventListener("dragleave", () => {
+    dropzone.addEventListener("dragleave", function () {
       dropzone.classList.remove("dragover");
     });
 
-    dropzone.addEventListener("drop", (e) => {
+    dropzone.addEventListener("drop", function (e) {
       e.preventDefault();
       dropzone.classList.remove("dragover");
-      if (e.dataTransfer.files.length) {
-        fileInput.files = e.dataTransfer.files;
-        updatePreview(fileInput.files[0]);
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
       }
     });
 
-    fileInput.addEventListener("change", () => {
-      if (fileInput.files.length) updatePreview(fileInput.files[0]);
+    fileInput.addEventListener("change", function () {
+      if (fileInput.files && fileInput.files.length > 0) {
+        handleFile(fileInput.files[0]);
+      }
     });
 
-    function updatePreview(file) {
+    function handleFile(file) {
+      if (utils && utils.isAllowedFileType && !utils.isAllowedFileType(file.name)) {
+        showNotification("Type de fichier non autorisé.", "error");
+        return;
+      }
       if (preview) {
-        preview.innerHTML = `<strong>${file.name}</strong> <span>(${(file.size / 1024).toFixed(1)} Ko)</span>`;
+        var size = utils && utils.formatFileSize ? utils.formatFileSize(file.size) : (file.size / 1024).toFixed(1) + " Ko";
+        var name = utils && utils.sanitizeInput ? utils.sanitizeInput(file.name) : file.name;
+        preview.innerHTML = "<span>" + name + " (" + size + ")</span>";
       }
-      simulateUpload();
+      simulateProgress();
     }
 
-    function simulateUpload() {
+    function simulateProgress() {
       if (!progressBar) return;
-      let progress = 0;
+      var width = 0;
       progressBar.style.width = "0%";
-      const interval = setInterval(() => {
-        progress += Math.random() * 15;
-        if (progress >= 100) {
-          progress = 100;
+      var interval = setInterval(function () {
+        width += 10;
+        progressBar.style.width = width + "%";
+        if (width >= 100) {
           clearInterval(interval);
+          showNotification("Fichier prêt à publier.", "success");
         }
-        progressBar.style.width = progress + "%";
-      }, 200);
+      }, 120);
+    }
+  }
+
+  /* ─── Search Utility (uses PortailUtils for normalization + debounce) ─── */
+  function initSearch() {
+    var utils = getUtils();
+    var input = document.getElementById("search-input");
+    if (!input) return;
+
+    var tbody = document.querySelector(".table-wrap tbody");
+    if (!tbody) return;
+
+    var allRows = Array.from(tbody.querySelectorAll("tr"));
+
+    var filterFn = function () {
+      var query = utils && utils.normalizeText ? utils.normalizeText(input.value) : input.value.toLowerCase().trim();
+      allRows.forEach(function (row) {
+        if (!query) { row.style.display = ""; return; }
+        var text = utils && utils.normalizeText ? utils.normalizeText(row.textContent || "") : (row.textContent || "").toLowerCase();
+        row.style.display = text.includes(query) ? "" : "none";
+      });
+    };
+
+    var debouncedFilter = utils && utils.debounce ? utils.debounce(filterFn, 250) : filterFn;
+    input.addEventListener("input", debouncedFilter);
+  }
+
+  /* ─── Filter Chips Utility ─── */
+  function initFilterChips() {
+    var chips = document.querySelectorAll(".filter-group .chip");
+    var tbody = document.querySelector(".table-wrap tbody");
+    if (!chips.length || !tbody) return;
+
+    var allRows = Array.from(tbody.querySelectorAll("tr"));
+
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        chips.forEach(function (c) { c.classList.remove("active"); });
+        chip.classList.add("active");
+
+        var filterType = chip.textContent.trim().toLowerCase();
+        allRows.forEach(function (row) {
+          if (filterType === "tous") { row.style.display = ""; return; }
+          var badge = row.querySelector(".file-badge");
+          if (!badge) { row.style.display = "none"; return; }
+          var badgeType = badge.textContent.trim().toLowerCase();
+          row.style.display = badgeType === filterType ? "" : "none";
+        });
+      });
+    });
+  }
+
+  /* ─── Publish Button Utility (uses PortailUtils for validation) ─── */
+  function initPublishButton() {
+    var utils = getUtils();
+    var publishBtn = document.getElementById("publish-button");
+    if (!publishBtn) return;
+
+    publishBtn.addEventListener("click", function () {
+      var form = document.querySelector(".document-form");
+      if (!form) return;
+
+      var titleInput = form.querySelector('input[type="text"]');
+      var profInput = form.querySelectorAll('input[type="text"]')[1];
+      var subjectSelect = form.querySelector("select");
+      var fileInput = document.getElementById("file-input");
+
+      var data = {
+        title: titleInput ? titleInput.value : "",
+        subject: subjectSelect ? subjectSelect.value : "",
+        professor: profInput ? profInput.value : "",
+        file: fileInput && fileInput.files.length > 0 ? fileInput.files[0] : null,
+      };
+
+      if (utils && utils.validateDocumentForm) {
+        var result = utils.validateDocumentForm(data);
+        if (!result.valid) {
+          showNotification(result.errors[0], "error");
+          return;
+        }
+      }
+
+      var title = utils && utils.sanitizeInput ? utils.sanitizeInput(data.title) : data.title;
+      showNotification('Document "' + title + '" publié avec succès !', "success");
+    });
+  }
+
+  /* ─── Notify Button ─── */
+  function initNotifyButton() {
+    var notifyBtn = document.getElementById("notify-button");
+    if (!notifyBtn) return;
+    notifyBtn.addEventListener("click", function () {
+      showNotification("Aucune nouvelle notification.", "info");
+    });
+  }
+
+  /* ─── Scroll-to Buttons ─── */
+  function initScrollButtons() {
+    var openUpload = document.getElementById("open-upload");
+    if (openUpload) {
+      openUpload.addEventListener("click", function () {
+        var target = document.getElementById("add-document");
+        if (target) target.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+    var openAnnouncement = document.getElementById("open-announcement");
+    if (openAnnouncement) {
+      openAnnouncement.addEventListener("click", function () {
+        var target = document.getElementById("announcements");
+        if (target) target.scrollIntoView({ behavior: "smooth" });
+      });
     }
   }
 
   /* ─── Public API ─── */
   return {
-    SUBJECTS,
-    DOC_TYPES,
-    renderSidebar,
-    renderTopbar,
-    renderHeroCard,
-    renderStatsGrid,
-    renderDocumentForm,
-    renderAnnouncementsPanel,
-    renderActivityPanel,
-    renderDocumentsTable,
-    renderStatisticsPanel,
-    renderSubjectsGrid,
-    renderSettingsGrid,
-    showNotification,
-    initMobileMenu,
-    initDropzone,
+    SUBJECTS: SUBJECTS,
+    DOC_TYPES: DOC_TYPES,
+    renderSidebar: renderSidebar,
+    renderTopbar: renderTopbar,
+    renderHeroCard: renderHeroCard,
+    renderStatsGrid: renderStatsGrid,
+    renderDocumentForm: renderDocumentForm,
+    renderAnnouncementsPanel: renderAnnouncementsPanel,
+    renderActivityPanel: renderActivityPanel,
+    renderDocumentsTable: renderDocumentsTable,
+    renderStatisticsPanel: renderStatisticsPanel,
+    renderSubjectsGrid: renderSubjectsGrid,
+    renderSettingsGrid: renderSettingsGrid,
+    showNotification: showNotification,
+    initMobileMenu: initMobileMenu,
+    initDropzone: initDropzone,
+    initSearch: initSearch,
+    initFilterChips: initFilterChips,
+    initPublishButton: initPublishButton,
+    initNotifyButton: initNotifyButton,
+    initScrollButtons: initScrollButtons,
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SharedComponents;
+}
