@@ -852,7 +852,8 @@ td button {
   gap: 12px;
 }
 
-.notification {
+.notification,
+.toast {
   position: fixed;
   right: 20px;
   bottom: 20px;
@@ -869,9 +870,23 @@ td button {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.notification.visible {
+.notification.visible,
+.toast.visible {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
+}
+
+.toast[data-tone="success"] {
+  background: linear-gradient(135deg, #0f7a4f, #0f5e44);
+}
+
+.toast[data-tone="info"] {
+  background: linear-gradient(135deg, #0f1d36, #122544);
+}
+
+.toast[data-tone="error"] {
+  background: linear-gradient(135deg, #dc2626, #991b1b);
 }
 
 @media (max-width: 1280px) {
@@ -966,7 +981,8 @@ td button {
     padding: 20px;
   }
 
-  .notification {
+  .notification,
+  .toast {
     right: 12px;
     left: 12px;
     min-width: auto;

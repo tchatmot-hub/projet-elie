@@ -675,6 +675,10 @@ tbody tr:hover {
   background: linear-gradient(135deg, #0f1d36, #122544);
 }
 
+.toast[data-tone="error"] {
+  background: linear-gradient(135deg, #dc2626, #991b1b);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
